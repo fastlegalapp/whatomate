@@ -19,7 +19,7 @@ import {
 } from '@/components/ui/select'
 import { toast } from 'vue-sonner'
 import { Settings, Bot, Bell, Shield, Loader2, Brain } from 'lucide-vue-next'
-import { chatbotService } from '@/services/api'
+import { chatbotService, usersService } from '@/services/api'
 
 const isSubmitting = ref(false)
 
@@ -65,6 +65,7 @@ watch(isAIEnabled, (newValue) => {
 })
 
 onMounted(async () => {
+  // Load chatbot settings
   try {
     const response = await chatbotService.getSettings()
     const data = response.data.data || response.data
@@ -87,7 +88,22 @@ onMounted(async () => {
       }
     }
   } catch (error) {
-    console.error('Failed to load settings:', error)
+    console.error('Failed to load chatbot settings:', error)
+  }
+
+  // Load user notification settings
+  try {
+    const response = await usersService.me()
+    const user = response.data.data || response.data
+    if (user.settings) {
+      notificationSettings.value = {
+        email_notifications: user.settings.email_notifications ?? true,
+        new_message_alerts: user.settings.new_message_alerts ?? true,
+        campaign_updates: user.settings.campaign_updates ?? true
+      }
+    }
+  } catch (error) {
+    console.error('Failed to load user settings:', error)
   }
 })
 
@@ -145,6 +161,22 @@ async function saveAISettings() {
     aiSettings.value.ai_api_key = '' // Clear the API key field after save
   } catch (error) {
     toast.error('Failed to save AI settings')
+  } finally {
+    isSubmitting.value = false
+  }
+}
+
+async function saveNotificationSettings() {
+  isSubmitting.value = true
+  try {
+    await usersService.updateSettings({
+      email_notifications: notificationSettings.value.email_notifications,
+      new_message_alerts: notificationSettings.value.new_message_alerts,
+      campaign_updates: notificationSettings.value.campaign_updates
+    })
+    toast.success('Notification settings saved')
+  } catch (error) {
+    toast.error('Failed to save notification settings')
   } finally {
     isSubmitting.value = false
   }
@@ -437,6 +469,12 @@ async function saveAISettings() {
                     :checked="notificationSettings.campaign_updates"
                     @update:checked="notificationSettings.campaign_updates = $event"
                   />
+                </div>
+                <div class="flex justify-end pt-4">
+                  <Button @click="saveNotificationSettings" :disabled="isSubmitting">
+                    <Loader2 v-if="isSubmitting" class="mr-2 h-4 w-4 animate-spin" />
+                    Save Changes
+                  </Button>
                 </div>
               </CardContent>
             </Card>

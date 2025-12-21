@@ -54,8 +54,13 @@ func NewClient(hub *Hub, conn *websocket.Conn, userID, orgID uuid.UUID) *Client 
 // ReadPump pumps messages from the websocket connection to the hub
 func (c *Client) ReadPump() {
 	defer func() {
+		if r := recover(); r != nil {
+			c.hub.log.Error("Recovered from panic in ReadPump", "error", r, "user_id", c.userID)
+		}
 		c.hub.unregister <- c
-		c.conn.Close()
+		if c.conn != nil {
+			c.conn.Close()
+		}
 	}()
 
 	c.conn.SetReadLimit(maxMessageSize)
@@ -82,13 +87,21 @@ func (c *Client) ReadPump() {
 func (c *Client) WritePump() {
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {
+		if r := recover(); r != nil {
+			c.hub.log.Error("Recovered from panic in WritePump", "error", r, "user_id", c.userID)
+		}
 		ticker.Stop()
-		c.conn.Close()
+		if c.conn != nil {
+			c.conn.Close()
+		}
 	}()
 
 	for {
 		select {
 		case message, ok := <-c.send:
+			if c.conn == nil {
+				return
+			}
 			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if !ok {
 				// Hub closed the channel
@@ -114,6 +127,9 @@ func (c *Client) WritePump() {
 			}
 
 		case <-ticker.C:
+			if c.conn == nil {
+				return
+			}
 			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return

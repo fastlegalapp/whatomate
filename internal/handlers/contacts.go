@@ -330,9 +330,12 @@ func (a *App) SendMessage(r *fastglue.Request) error {
 			return r.SendErrorEnvelope(fasthttp.StatusBadRequest, "WhatsApp account not found", nil, "")
 		}
 	} else {
-		// Get default account
-		if err := a.DB.Where("organization_id = ?", orgID).First(&account).Error; err != nil {
-			return r.SendErrorEnvelope(fasthttp.StatusBadRequest, "No WhatsApp account configured", nil, "")
+		// Get default outgoing account
+		if err := a.DB.Where("organization_id = ? AND is_default_outgoing = ?", orgID, true).First(&account).Error; err != nil {
+			// Fall back to any account
+			if err := a.DB.Where("organization_id = ?", orgID).First(&account).Error; err != nil {
+				return r.SendErrorEnvelope(fasthttp.StatusBadRequest, "No WhatsApp account configured", nil, "")
+			}
 		}
 	}
 

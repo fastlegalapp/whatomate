@@ -19,14 +19,22 @@ type UserRequest struct {
 
 // UserResponse represents the response for a user (without sensitive data)
 type UserResponse struct {
-	ID             uuid.UUID `json:"id"`
-	Email          string    `json:"email"`
-	FullName       string    `json:"full_name"`
-	Role           string    `json:"role"`
-	IsActive       bool      `json:"is_active"`
-	OrganizationID uuid.UUID `json:"organization_id"`
-	CreatedAt      string    `json:"created_at"`
-	UpdatedAt      string    `json:"updated_at"`
+	ID             uuid.UUID     `json:"id"`
+	Email          string        `json:"email"`
+	FullName       string        `json:"full_name"`
+	Role           string        `json:"role"`
+	IsActive       bool          `json:"is_active"`
+	OrganizationID uuid.UUID     `json:"organization_id"`
+	Settings       models.JSONB  `json:"settings,omitempty"`
+	CreatedAt      string        `json:"created_at"`
+	UpdatedAt      string        `json:"updated_at"`
+}
+
+// UserSettingsRequest represents notification/settings preferences
+type UserSettingsRequest struct {
+	EmailNotifications bool `json:"email_notifications"`
+	NewMessageAlerts   bool `json:"new_message_alerts"`
+	CampaignUpdates    bool `json:"campaign_updates"`
 }
 
 // ListUsers returns all users for the organization (admin only)
@@ -296,6 +304,44 @@ func (a *App) GetCurrentUser(r *fastglue.Request) error {
 	return r.SendEnvelope(userToResponse(user))
 }
 
+// UpdateCurrentUserSettings updates the current user's notification/preferences settings
+func (a *App) UpdateCurrentUserSettings(r *fastglue.Request) error {
+	userID, ok := r.RequestCtx.UserValue("user_id").(uuid.UUID)
+	if !ok {
+		return r.SendErrorEnvelope(fasthttp.StatusUnauthorized, "Unauthorized", nil, "")
+	}
+
+	var user models.User
+	if err := a.DB.Where("id = ?", userID).First(&user).Error; err != nil {
+		return r.SendErrorEnvelope(fasthttp.StatusNotFound, "User not found", nil, "")
+	}
+
+	var req UserSettingsRequest
+	if err := r.Decode(&req, "json"); err != nil {
+		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, "Invalid request body", nil, "")
+	}
+
+	// Initialize settings if nil
+	if user.Settings == nil {
+		user.Settings = make(models.JSONB)
+	}
+
+	// Update notification settings
+	user.Settings["email_notifications"] = req.EmailNotifications
+	user.Settings["new_message_alerts"] = req.NewMessageAlerts
+	user.Settings["campaign_updates"] = req.CampaignUpdates
+
+	if err := a.DB.Save(&user).Error; err != nil {
+		a.Log.Error("Failed to update user settings", "error", err)
+		return r.SendErrorEnvelope(fasthttp.StatusInternalServerError, "Failed to update settings", nil, "")
+	}
+
+	return r.SendEnvelope(map[string]interface{}{
+		"message":  "Settings updated successfully",
+		"settings": user.Settings,
+	})
+}
+
 // Helper function to convert User to UserResponse
 func userToResponse(user models.User) UserResponse {
 	return UserResponse{
@@ -305,6 +351,7 @@ func userToResponse(user models.User) UserResponse {
 		Role:           user.Role,
 		IsActive:       user.IsActive,
 		OrganizationID: user.OrganizationID,
+		Settings:       user.Settings,
 		CreatedAt:      user.CreatedAt.Format("2006-01-02T15:04:05Z"),
 		UpdatedAt:      user.UpdatedAt.Format("2006-01-02T15:04:05Z"),
 	}

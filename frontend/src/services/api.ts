@@ -90,7 +90,9 @@ export const usersService = {
   update: (id: string, data: { email?: string; password?: string; full_name?: string; role?: string; is_active?: boolean }) =>
     api.put(`/users/${id}`, data),
   delete: (id: string) => api.delete(`/users/${id}`),
-  me: () => api.get('/me')
+  me: () => api.get('/me'),
+  updateSettings: (data: { email_notifications: boolean; new_message_alerts: boolean; campaign_updates: boolean }) =>
+    api.put('/me/settings', data)
 }
 
 export const apiKeysService = {

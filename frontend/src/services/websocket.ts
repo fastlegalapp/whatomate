@@ -1,4 +1,41 @@
 import { useContactsStore } from '@/stores/contacts'
+import { useAuthStore } from '@/stores/auth'
+import { toast } from 'vue-sonner'
+import router from '@/router'
+
+// Notification sound
+let notificationSound: HTMLAudioElement | null = null
+
+function playNotificationSound() {
+  if (!notificationSound) {
+    notificationSound = new Audio('/notification.mp3')
+    notificationSound.volume = 0.5
+  }
+  notificationSound.currentTime = 0
+  notificationSound.play().catch(() => {
+    // Ignore autoplay errors (browser may block until user interaction)
+  })
+}
+
+// Show toast notification with click handler
+function showNotification(title: string, body: string, contactId: string) {
+  toast.info(title, {
+    description: body,
+    duration: 5000,
+    action: {
+      label: 'View',
+      onClick: () => {
+        router.push(`/chat/${contactId}`)
+      },
+      actionButtonStyle: {
+        background: 'transparent',
+        border: '1px solid #e5e7eb',
+        color: '#3b82f6',
+        fontWeight: '500'
+      }
+    }
+  })
+}
 
 // WebSocket message types
 const WS_TYPE_NEW_MESSAGE = 'new_message'
@@ -100,7 +137,9 @@ class WebSocketService {
   private handleNewMessage(store: ReturnType<typeof useContactsStore>, payload: any) {
     // Check if this message is for the current contact
     const currentContact = store.currentContact
-    if (currentContact && payload.contact_id === currentContact.id) {
+    const isViewingThisContact = currentContact && payload.contact_id === currentContact.id
+
+    if (isViewingThisContact) {
       // Add message to the store
       store.addMessage({
         id: payload.id,
@@ -114,6 +153,36 @@ class WebSocketService {
         created_at: payload.created_at,
         updated_at: payload.updated_at
       })
+    }
+
+    // Show toast notification for incoming messages if:
+    // 1. Message is incoming (from customer, not chatbot/agent)
+    // 2. Current user is assigned to this contact
+    // 3. User has new_message_alerts enabled
+    // 4. User is not currently viewing this contact
+    if (payload.direction === 'incoming' && !isViewingThisContact) {
+      const authStore = useAuthStore()
+      const currentUserId = authStore.user?.id
+      const settings = authStore.userSettings
+
+      // Check if user is assigned to this contact
+      const isAssignedToUser = payload.assigned_user_id === currentUserId
+
+      // Check if new message alerts are enabled (default to true if not set)
+      const alertsEnabled = settings.new_message_alerts !== false
+
+      if (isAssignedToUser && alertsEnabled) {
+        const senderName = payload.profile_name || 'Unknown'
+        const messagePreview = payload.content?.body || 'New message'
+        const preview = messagePreview.length > 50
+          ? messagePreview.substring(0, 50) + '...'
+          : messagePreview
+        const contactId = payload.contact_id
+
+        // Play notification sound and show browser notification
+        playNotificationSound()
+        showNotification(senderName, preview, contactId)
+      }
     }
 
     // Update contacts list (for unread count, last message preview)

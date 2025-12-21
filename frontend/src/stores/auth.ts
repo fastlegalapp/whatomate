@@ -2,6 +2,12 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { api } from '@/services/api'
 
+export interface UserSettings {
+  email_notifications?: boolean
+  new_message_alerts?: boolean
+  campaign_updates?: boolean
+}
+
 export interface User {
   id: string
   email: string
@@ -9,6 +15,7 @@ export interface User {
   role: string
   organization_id: string
   organization_name?: string
+  settings?: UserSettings
 }
 
 export interface AuthState {
@@ -25,6 +32,7 @@ export const useAuthStore = defineStore('auth', () => {
   const isAuthenticated = computed(() => !!token.value && !!user.value)
   const userRole = computed(() => user.value?.role || 'agent')
   const organizationId = computed(() => user.value?.organization_id || '')
+  const userSettings = computed(() => user.value?.settings || {})
 
   function setAuth(authData: { user: User; access_token: string; refresh_token: string }) {
     user.value = authData.user
@@ -118,6 +126,7 @@ export const useAuthStore = defineStore('auth', () => {
     isAuthenticated,
     userRole,
     organizationId,
+    userSettings,
     setAuth,
     clearAuth,
     restoreSession,

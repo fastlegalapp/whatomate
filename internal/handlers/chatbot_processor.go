@@ -131,9 +131,9 @@ func (a *App) processIncomingMessageFull(phoneNumberID string, msg IncomingTextM
 	if matched {
 		a.Log.Info("Keyword rule matched", "response", keywordResponse.Body, "has_buttons", len(keywordResponse.Buttons) > 0)
 		if len(keywordResponse.Buttons) > 0 {
-			a.sendInteractiveButtons(&account, msg.From, keywordResponse.Body, keywordResponse.Buttons)
+			a.sendAndSaveInteractiveButtons(&account, contact, keywordResponse.Body, keywordResponse.Buttons)
 		} else {
-			a.sendTextMessage(&account, msg.From, keywordResponse.Body)
+			a.sendAndSaveTextMessage(&account, contact, keywordResponse.Body)
 		}
 		// Log outgoing message
 		a.logSessionMessage(session.ID, "outgoing", keywordResponse.Body, "keyword_response")
@@ -149,7 +149,7 @@ func (a *App) processIncomingMessageFull(phoneNumberID string, msg IncomingTextM
 			// Fall through to default response
 		} else if aiResponse != "" {
 			a.Log.Info("AI response generated successfully", "response_length", len(aiResponse))
-			a.sendTextMessage(&account, msg.From, aiResponse)
+			a.sendAndSaveTextMessage(&account, contact, aiResponse)
 			a.logSessionMessage(session.ID, "outgoing", aiResponse, "ai_response")
 			return
 		} else {
@@ -162,7 +162,7 @@ func (a *App) processIncomingMessageFull(phoneNumberID string, msg IncomingTextM
 	// If no AI response or AI not enabled, send default response (if configured)
 	if settings.DefaultResponse != "" {
 		a.Log.Info("Sending default response", "response", settings.DefaultResponse)
-		a.sendTextMessage(&account, msg.From, settings.DefaultResponse)
+		a.sendAndSaveTextMessage(&account, contact, settings.DefaultResponse)
 		// Log outgoing message
 		a.logSessionMessage(session.ID, "outgoing", settings.DefaultResponse, "default_response")
 	} else {
@@ -270,6 +270,107 @@ func (a *App) sendTextMessage(account *models.WhatsAppAccount, to, message strin
 	}
 	ctx := context.Background()
 	_, err := a.WhatsApp.SendTextMessage(ctx, waAccount, to, message)
+	return err
+}
+
+// sendAndSaveTextMessage sends a text message and saves it to the database
+func (a *App) sendAndSaveTextMessage(account *models.WhatsAppAccount, contact *models.Contact, message string) error {
+	waAccount := &whatsapp.Account{
+		PhoneID:     account.PhoneID,
+		BusinessID:  account.BusinessID,
+		APIVersion:  account.APIVersion,
+		AccessToken: account.AccessToken,
+	}
+	ctx := context.Background()
+	wamid, err := a.WhatsApp.SendTextMessage(ctx, waAccount, contact.PhoneNumber, message)
+
+	// Create message record
+	msg := models.Message{
+		OrganizationID:  account.OrganizationID,
+		WhatsAppAccount: account.Name,
+		ContactID:       contact.ID,
+		Direction:       "outgoing",
+		MessageType:     "text",
+		Content:         message,
+		Status:          "sent",
+	}
+	if err != nil {
+		msg.Status = "failed"
+		msg.ErrorMessage = err.Error()
+	} else if wamid != "" {
+		msg.WhatsAppMessageID = wamid
+	}
+
+	if dbErr := a.DB.Create(&msg).Error; dbErr != nil {
+		a.Log.Error("Failed to save chatbot message", "error", dbErr)
+	}
+
+	// Broadcast via WebSocket
+	if a.WSHub != nil {
+		a.WSHub.BroadcastToOrg(account.OrganizationID, websocket.WSMessage{
+			Type: websocket.TypeNewMessage,
+			Payload: map[string]any{
+				"id":              msg.ID,
+				"contact_id":      contact.ID,
+				"assigned_user_id": contact.AssignedUserID,
+				"profile_name":    contact.ProfileName,
+				"direction":       msg.Direction,
+				"message_type":    msg.MessageType,
+				"content":         map[string]string{"body": msg.Content},
+				"status":          msg.Status,
+				"wamid":           msg.WhatsAppMessageID,
+				"created_at":      msg.CreatedAt,
+				"updated_at":      msg.UpdatedAt,
+			},
+		})
+	}
+
+	return err
+}
+
+// sendAndSaveInteractiveButtons sends an interactive button message and saves it to the database
+func (a *App) sendAndSaveInteractiveButtons(account *models.WhatsAppAccount, contact *models.Contact, bodyText string, buttons []map[string]interface{}) error {
+	err := a.sendInteractiveButtons(account, contact.PhoneNumber, bodyText, buttons)
+
+	// Create message record
+	msg := models.Message{
+		OrganizationID:  account.OrganizationID,
+		WhatsAppAccount: account.Name,
+		ContactID:       contact.ID,
+		Direction:       "outgoing",
+		MessageType:     "interactive",
+		Content:         bodyText,
+		Status:          "sent",
+	}
+	if err != nil {
+		msg.Status = "failed"
+		msg.ErrorMessage = err.Error()
+	}
+
+	if dbErr := a.DB.Create(&msg).Error; dbErr != nil {
+		a.Log.Error("Failed to save chatbot interactive message", "error", dbErr)
+	}
+
+	// Broadcast via WebSocket
+	if a.WSHub != nil {
+		a.WSHub.BroadcastToOrg(account.OrganizationID, websocket.WSMessage{
+			Type: websocket.TypeNewMessage,
+			Payload: map[string]any{
+				"id":              msg.ID,
+				"contact_id":      contact.ID,
+				"assigned_user_id": contact.AssignedUserID,
+				"profile_name":    contact.ProfileName,
+				"direction":       msg.Direction,
+				"message_type":    msg.MessageType,
+				"content":         map[string]string{"body": msg.Content},
+				"status":          msg.Status,
+				"wamid":           msg.WhatsAppMessageID,
+				"created_at":      msg.CreatedAt,
+				"updated_at":      msg.UpdatedAt,
+			},
+		})
+	}
+
 	return err
 }
 
@@ -420,7 +521,7 @@ func (a *App) startFlow(account *models.WhatsAppAccount, session *models.Chatbot
 
 	// Send initial message if configured
 	if flow.InitialMessage != "" {
-		a.sendTextMessage(account, contact.PhoneNumber, flow.InitialMessage)
+		a.sendAndSaveTextMessage(account, contact, flow.InitialMessage)
 		a.logSessionMessage(session.ID, "outgoing", flow.InitialMessage, "flow_start")
 	}
 
@@ -455,7 +556,7 @@ func (a *App) processFlowResponse(account *models.WhatsAppAccount, session *mode
 	userInputLower := strings.ToLower(userInput)
 	for _, cancelKw := range flow.CancelKeywords {
 		if strings.Contains(userInputLower, strings.ToLower(cancelKw)) {
-			a.sendTextMessage(account, contact.PhoneNumber, "Flow cancelled.")
+			a.sendAndSaveTextMessage(account, contact, "Flow cancelled.")
 			a.logSessionMessage(session.ID, "outgoing", "Flow cancelled.", "flow_cancel")
 			a.exitFlow(session)
 			return
@@ -491,7 +592,7 @@ func (a *App) processFlowResponse(account *models.WhatsAppAccount, session *mode
 				if errorMsg == "" {
 					errorMsg = "Invalid input. Please try again."
 				}
-				a.sendTextMessage(account, contact.PhoneNumber, errorMsg)
+				a.sendAndSaveTextMessage(account, contact, errorMsg)
 				a.logSessionMessage(session.ID, "outgoing", errorMsg, currentStep.StepName+"_retry")
 				return
 			}
@@ -581,7 +682,7 @@ func (a *App) completeFlow(account *models.WhatsAppAccount, session *models.Chat
 	// Send completion message
 	if flow.CompletionMessage != "" {
 		message := a.replaceVariables(flow.CompletionMessage, session.SessionData)
-		a.sendTextMessage(account, contact.PhoneNumber, message)
+		a.sendAndSaveTextMessage(account, contact, message)
 		a.logSessionMessage(session.ID, "outgoing", message, "flow_complete")
 	}
 
@@ -737,14 +838,14 @@ func (a *App) sendStepMessage(account *models.WhatsAppAccount, session *models.C
 			} else {
 				message = "Sorry, there was an error processing your request."
 			}
-			a.sendTextMessage(account, contact.PhoneNumber, message)
+			a.sendAndSaveTextMessage(account, contact, message)
 		} else {
 			message = apiResp.Message
 			// Check if API returned buttons
 			if len(apiResp.Buttons) > 0 {
 				a.sendInteractiveButtons(account, contact.PhoneNumber, message, apiResp.Buttons)
 			} else {
-				a.sendTextMessage(account, contact.PhoneNumber, message)
+				a.sendAndSaveTextMessage(account, contact, message)
 			}
 		}
 		a.logSessionMessage(session.ID, "outgoing", message, step.StepName)
@@ -763,14 +864,14 @@ func (a *App) sendStepMessage(account *models.WhatsAppAccount, session *models.C
 			a.sendInteractiveButtons(account, contact.PhoneNumber, message, buttons)
 		} else {
 			// No buttons configured, fall back to text
-			a.sendTextMessage(account, contact.PhoneNumber, message)
+			a.sendAndSaveTextMessage(account, contact, message)
 		}
 		a.logSessionMessage(session.ID, "outgoing", message, step.StepName)
 
 	default:
 		// Default: use the step message with variable replacement
 		message = a.replaceVariables(step.Message, session.SessionData)
-		a.sendTextMessage(account, contact.PhoneNumber, message)
+		a.sendAndSaveTextMessage(account, contact, message)
 		a.logSessionMessage(session.ID, "outgoing", message, step.StepName)
 	}
 }
@@ -1486,15 +1587,17 @@ func (a *App) saveIncomingMessage(account *models.WhatsAppAccount, contact *mode
 		a.WSHub.BroadcastToOrg(account.OrganizationID, websocket.WSMessage{
 			Type: websocket.TypeNewMessage,
 			Payload: map[string]any{
-				"id":           message.ID,
-				"contact_id":   contact.ID,
-				"direction":    message.Direction,
-				"message_type": message.MessageType,
-				"content":      map[string]string{"body": message.Content},
-				"status":       message.Status,
-				"wamid":        message.WhatsAppMessageID,
-				"created_at":   message.CreatedAt,
-				"updated_at":   message.UpdatedAt,
+				"id":              message.ID,
+				"contact_id":      contact.ID,
+				"assigned_user_id": contact.AssignedUserID,
+				"profile_name":    contact.ProfileName,
+				"direction":       message.Direction,
+				"message_type":    message.MessageType,
+				"content":         map[string]string{"body": message.Content},
+				"status":          message.Status,
+				"wamid":           message.WhatsAppMessageID,
+				"created_at":      message.CreatedAt,
+				"updated_at":      message.UpdatedAt,
 			},
 		})
 	}
