@@ -141,12 +141,21 @@ func (a *App) processIncomingMessageFull(phoneNumberID string, msg IncomingTextM
 	// Check for transfer keyword BEFORE sending greeting (transfer takes priority)
 	keywordResponse, keywordMatched := a.matchKeywordRules(account.OrganizationID, account.Name, messageText)
 	if keywordMatched && keywordResponse.ResponseType == "transfer" {
-		a.Log.Info("Transfer keyword matched, skipping greeting", "response", keywordResponse.Body)
-		// Send transfer message if provided
+		a.Log.Info("Transfer keyword matched", "response", keywordResponse.Body)
+		// Check business hours - if outside hours, send out of hours message instead
+		if settings.BusinessHoursEnabled && len(settings.BusinessHours) > 0 {
+			if !a.isWithinBusinessHours(settings.BusinessHours) {
+				a.Log.Info("Outside business hours, sending out of hours message instead of transfer")
+				if settings.OutOfHoursMessage != "" {
+					a.sendAndSaveTextMessage(&account, contact, settings.OutOfHoursMessage)
+				}
+				return
+			}
+		}
+		// Within business hours - send transfer message and create transfer
 		if keywordResponse.Body != "" {
 			a.sendAndSaveTextMessage(&account, contact, keywordResponse.Body)
 		}
-		// Create agent transfer
 		a.createTransferFromKeyword(&account, contact)
 		return
 	}
