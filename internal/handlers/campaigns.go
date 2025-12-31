@@ -57,6 +57,8 @@ func (a *App) ListCampaigns(r *fastglue.Request) error {
 	// Get query params
 	status := string(r.RequestCtx.QueryArgs().Peek("status"))
 	whatsappAccount := string(r.RequestCtx.QueryArgs().Peek("whatsapp_account"))
+	fromDate := string(r.RequestCtx.QueryArgs().Peek("from"))
+	toDate := string(r.RequestCtx.QueryArgs().Peek("to"))
 
 	var campaigns []models.BulkMessageCampaign
 	query := a.DB.Where("organization_id = ?", orgID).
@@ -68,6 +70,18 @@ func (a *App) ListCampaigns(r *fastglue.Request) error {
 	}
 	if whatsappAccount != "" {
 		query = query.Where("whats_app_account = ?", whatsappAccount)
+	}
+	if fromDate != "" {
+		if parsedFrom, err := time.Parse("2006-01-02", fromDate); err == nil {
+			query = query.Where("created_at >= ?", parsedFrom)
+		}
+	}
+	if toDate != "" {
+		if parsedTo, err := time.Parse("2006-01-02", toDate); err == nil {
+			// End of day
+			endOfDay := parsedTo.Add(24*time.Hour - time.Nanosecond)
+			query = query.Where("created_at <= ?", endOfDay)
+		}
 	}
 
 	if err := query.Find(&campaigns).Error; err != nil {

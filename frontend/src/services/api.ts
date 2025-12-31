@@ -168,7 +168,7 @@ export const flowsService = {
 }
 
 export const campaignsService = {
-  list: (params?: { status?: string }) => api.get('/campaigns', { params }),
+  list: (params?: { status?: string; from?: string; to?: string }) => api.get('/campaigns', { params }),
   get: (id: string) => api.get(`/campaigns/${id}`),
   create: (data: any) => api.post('/campaigns', data),
   update: (id: string, data: any) => api.put(`/campaigns/${id}`, data),
