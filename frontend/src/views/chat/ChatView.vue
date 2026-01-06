@@ -106,6 +106,11 @@ const mediaLoadingStates = ref<Record<string, boolean>>({})
 const cannedPickerOpen = ref(false)
 const cannedSearchQuery = ref('')
 
+// Sticky date header state
+const stickyDate = ref('')
+const showStickyDate = ref(false)
+let stickyDateTimeout: ReturnType<typeof setTimeout> | null = null
+
 // Emoji picker state
 const emojiPickerOpen = ref(false)
 
@@ -190,6 +195,8 @@ onUnmounted(() => {
   mediaBlobUrls.value = {}
   // Remove scroll listener
   removeScrollListener()
+  // Clear sticky date timeout
+  if (stickyDateTimeout) clearTimeout(stickyDateTimeout)
 })
 
 // Infinite scroll for loading older messages
@@ -215,6 +222,10 @@ function removeScrollListener() {
 
 async function handleScroll(event: Event) {
   const target = event.target as HTMLElement
+
+  // Update sticky date header
+  updateStickyDate(target)
+
   // Trigger load when scrolled near top (within 100px)
   if (target.scrollTop < 100 && contactsStore.hasMoreMessages && !contactsStore.isLoadingOlderMessages) {
     const currentScrollHeight = target.scrollHeight
@@ -233,6 +244,40 @@ async function handleScroll(event: Event) {
     } catch (e) {
       console.error('Error loading media:', e)
     }
+  }
+}
+
+function updateStickyDate(scrollContainer: HTMLElement) {
+  // Find all date separator elements
+  const dateSeparators = scrollContainer.querySelectorAll('[data-date-separator]')
+  if (dateSeparators.length === 0) return
+
+  const containerRect = scrollContainer.getBoundingClientRect()
+  const containerTop = containerRect.top + 60 // Offset for sticky header position
+
+  // Find the last date separator that's above the viewport top
+  let currentDate = ''
+  for (const separator of dateSeparators) {
+    const rect = separator.getBoundingClientRect()
+    if (rect.top < containerTop) {
+      currentDate = separator.getAttribute('data-date-separator') || ''
+    } else {
+      break
+    }
+  }
+
+  // Show sticky date if we have scrolled past at least one date separator
+  if (currentDate && scrollContainer.scrollTop > 50) {
+    stickyDate.value = currentDate
+    showStickyDate.value = true
+
+    // Hide after scrolling stops
+    if (stickyDateTimeout) clearTimeout(stickyDateTimeout)
+    stickyDateTimeout = setTimeout(() => {
+      showStickyDate.value = false
+    }, 1500)
+  } else {
+    showStickyDate.value = false
   }
 }
 
@@ -1065,25 +1110,37 @@ async function sendMediaMessage() {
         </div>
 
         <!-- Messages -->
-        <ScrollArea ref="messagesScrollAreaRef" class="flex-1 p-3 chat-background">
-          <div class="space-y-2">
-            <!-- Loading indicator for older messages -->
-            <div v-if="contactsStore.isLoadingOlderMessages" class="flex justify-center py-2">
-              <div class="flex items-center gap-2 text-muted-foreground text-sm">
-                <div class="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                <span>Loading older messages...</span>
-              </div>
-            </div>
-            <template
-              v-for="(message, index) in contactsStore.messages"
-              :key="message.id"
+        <div class="relative flex-1 min-h-0 overflow-hidden">
+          <!-- Sticky date header -->
+          <Transition name="sticky-date">
+            <div
+              v-if="showStickyDate"
+              class="absolute top-2 left-1/2 -translate-x-1/2 z-10 px-3 py-1 bg-muted/95 backdrop-blur-sm rounded-full text-xs text-muted-foreground font-medium shadow-sm"
             >
-              <!-- Date separator -->
-              <div
-                v-if="shouldShowDateSeparator(index)"
-                class="flex items-center justify-center my-4"
+              {{ stickyDate }}
+            </div>
+          </Transition>
+
+          <ScrollArea ref="messagesScrollAreaRef" class="h-full p-3 chat-background">
+            <div class="space-y-2">
+              <!-- Loading indicator for older messages -->
+              <div v-if="contactsStore.isLoadingOlderMessages" class="flex justify-center py-2">
+                <div class="flex items-center gap-2 text-muted-foreground text-sm">
+                  <div class="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                  <span>Loading older messages...</span>
+                </div>
+              </div>
+              <template
+                v-for="(message, index) in contactsStore.messages"
+                :key="message.id"
               >
-                <div class="px-3 py-1 bg-muted rounded-full text-xs text-muted-foreground font-medium">
+                <!-- Date separator -->
+                <div
+                  v-if="shouldShowDateSeparator(index)"
+                  class="flex items-center justify-center my-4"
+                  :data-date-separator="getDateLabel(message.created_at)"
+                >
+                  <div class="px-3 py-1 bg-muted rounded-full text-xs text-muted-foreground font-medium">
                   {{ getDateLabel(message.created_at) }}
                 </div>
               </div>
@@ -1365,6 +1422,7 @@ async function sendMediaMessage() {
             <div ref="messagesEndRef" />
           </div>
         </ScrollArea>
+        </div>
 
         <!-- Reply indicator -->
         <div
@@ -1602,3 +1660,15 @@ async function sendMediaMessage() {
     </Dialog>
   </div>
 </template>
+
+<style scoped>
+.sticky-date-enter-active,
+.sticky-date-leave-active {
+  transition: opacity 0.3s ease;
+}
+
+.sticky-date-enter-from,
+.sticky-date-leave-to {
+  opacity: 0;
+}
+</style>
