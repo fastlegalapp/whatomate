@@ -59,12 +59,6 @@ func CORS() fastglue.FastMiddleware {
 		r.RequestCtx.Response.Header.Set("Access-Control-Allow-Credentials", "true")
 		r.RequestCtx.Response.Header.Set("Access-Control-Max-Age", "86400")
 
-		// Handle preflight
-		if string(r.RequestCtx.Method()) == "OPTIONS" {
-			r.RequestCtx.SetStatusCode(fasthttp.StatusNoContent)
-			return nil
-		}
-
 		return r
 	}
 }

@@ -110,17 +110,16 @@ func main() {
 		lo.Error("Failed to start campaign stats subscriber", "error", err)
 	}
 
-	// Setup middleware
+	// Setup middleware (CORS is handled by corsWrapper at fasthttp level)
 	g.Before(middleware.RequestLogger(lo))
-	g.Before(middleware.CORS())
 	g.Before(middleware.Recovery(lo))
 
 	// Setup routes
 	setupRoutes(g, app, lo, cfg.Server.BasePath)
 
-	// Create server
+	// Create server with CORS wrapper
 	server := &fasthttp.Server{
-		Handler:      g.Handler(),
+		Handler:      corsWrapper(g.Handler()),
 		ReadTimeout:  time.Duration(cfg.Server.ReadTimeout) * time.Second,
 		WriteTimeout: time.Duration(cfg.Server.WriteTimeout) * time.Second,
 		Name:         "Whatomate",
@@ -229,6 +228,10 @@ func setupRoutes(g *fastglue.Fastglue, app *handlers.App, lo logf.Logger, basePa
 	// For protected routes, we'll use a path-based middleware approach
 	// Apply auth middleware globally but check path in the middleware
 	g.Before(func(r *fastglue.Request) *fastglue.Request {
+		// Skip auth for OPTIONS preflight requests (handled by CORS middleware)
+		if string(r.RequestCtx.Method()) == "OPTIONS" {
+			return r
+		}
 		path := string(r.RequestCtx.Path())
 		// Skip auth for public routes
 		if path == "/health" || path == "/ready" ||
@@ -253,8 +256,14 @@ func setupRoutes(g *fastglue.Fastglue, app *handlers.App, lo logf.Logger, basePa
 
 	// Role-based access control middleware
 	g.Before(func(r *fastglue.Request) *fastglue.Request {
-		path := string(r.RequestCtx.Path())
 		method := string(r.RequestCtx.Method())
+
+		// Skip OPTIONS preflight requests
+		if method == "OPTIONS" {
+			return r
+		}
+
+		path := string(r.RequestCtx.Path())
 
 		// Only apply to authenticated API routes
 		if len(path) < 4 || path[:4] != "/api" {
@@ -520,5 +529,30 @@ func setupRoutes(g *fastglue.Fastglue, app *handlers.App, lo logf.Logger, basePa
 		})
 	} else {
 		lo.Info("Frontend not embedded, API-only mode")
+	}
+}
+
+// corsWrapper wraps a handler with CORS support at the fasthttp level
+// This ensures CORS headers are set even for auto-handled OPTIONS requests
+func corsWrapper(next fasthttp.RequestHandler) fasthttp.RequestHandler {
+	return func(ctx *fasthttp.RequestCtx) {
+		origin := string(ctx.Request.Header.Peek("Origin"))
+		if origin == "" {
+			origin = "*"
+		}
+
+		ctx.Response.Header.Set("Access-Control-Allow-Origin", origin)
+		ctx.Response.Header.Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH")
+		ctx.Response.Header.Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Key, X-Requested-With")
+		ctx.Response.Header.Set("Access-Control-Allow-Credentials", "true")
+		ctx.Response.Header.Set("Access-Control-Max-Age", "86400")
+
+		// Handle preflight OPTIONS requests
+		if string(ctx.Method()) == "OPTIONS" {
+			ctx.SetStatusCode(fasthttp.StatusNoContent)
+			return
+		}
+
+		next(ctx)
 	}
 }
