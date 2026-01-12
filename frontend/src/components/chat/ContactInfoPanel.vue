@@ -4,7 +4,6 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Skeleton } from '@/components/ui/skeleton'
 import {
   Collapsible,
   CollapsibleContent,
@@ -12,7 +11,6 @@ import {
 } from '@/components/ui/collapsible'
 import { X, ChevronDown, ChevronRight, Phone, User } from 'lucide-vue-next'
 import { getInitials } from '@/lib/utils'
-import { contactsService } from '@/services/api'
 import type { Contact } from '@/stores/contacts'
 
 interface PanelFieldConfig {
@@ -47,14 +45,13 @@ interface SessionData {
 
 const props = defineProps<{
   contact: Contact
+  sessionData?: SessionData | null
 }>()
 
 const emit = defineEmits<{
   close: []
 }>()
 
-const isLoading = ref(false)
-const sessionData = ref<SessionData | null>(null)
 const collapsedSections = ref<Record<string, boolean>>({})
 
 // Resizable panel state
@@ -85,34 +82,16 @@ function startResize(e: MouseEvent) {
   document.addEventListener('mouseup', onMouseUp)
 }
 
-// Fetch session data when panel opens (contact changes)
-watch(() => props.contact.id, async (newId) => {
-  if (newId) {
-    await fetchSessionData()
-  }
-}, { immediate: true })
-
-async function fetchSessionData() {
-  isLoading.value = true
-  try {
-    const response = await contactsService.getSessionData(props.contact.id)
-    sessionData.value = response.data.data || response.data
-
-    // Initialize collapsed state based on default_collapsed
-    if (sessionData.value?.panel_config?.sections) {
-      for (const section of sessionData.value.panel_config.sections) {
-        if (collapsedSections.value[section.id] === undefined) {
-          collapsedSections.value[section.id] = section.default_collapsed
-        }
+// Initialize collapsed state when session data changes
+watch(() => props.sessionData, (newData) => {
+  if (newData?.panel_config?.sections) {
+    for (const section of newData.panel_config.sections) {
+      if (collapsedSections.value[section.id] === undefined) {
+        collapsedSections.value[section.id] = section.default_collapsed
       }
     }
-  } catch (error) {
-    console.error('Failed to fetch session data:', error)
-    sessionData.value = null
-  } finally {
-    isLoading.value = false
   }
-}
+}, { immediate: true })
 
 function toggleSection(sectionId: string) {
   collapsedSections.value[sectionId] = !collapsedSections.value[sectionId]
@@ -123,8 +102,8 @@ function isSectionCollapsed(sectionId: string): boolean {
 }
 
 function getFieldValue(key: string): string {
-  if (!sessionData.value?.session_data) return '-'
-  const value = sessionData.value.session_data[key]
+  if (!props.sessionData?.session_data) return '-'
+  const value = props.sessionData.session_data[key]
   if (value === undefined || value === null || value === '') return '-'
   return String(value)
 }
@@ -146,8 +125,8 @@ function getColorClass(color?: string): string {
 
 // Sort sections by order
 const sortedSections = computed(() => {
-  if (!sessionData.value?.panel_config?.sections) return []
-  return [...sessionData.value.panel_config.sections].sort((a, b) => a.order - b.order)
+  if (!props.sessionData?.panel_config?.sections) return []
+  return [...props.sessionData.panel_config.sections].sort((a, b) => a.order - b.order)
 })
 
 // Get tags from contact
@@ -196,16 +175,8 @@ const contactTags = computed(() => {
           </div>
         </div>
 
-        <!-- Loading State -->
-        <div v-if="isLoading" class="space-y-4">
-          <Skeleton class="h-8 w-full" />
-          <Skeleton class="h-20 w-full" />
-          <Skeleton class="h-8 w-full" />
-          <Skeleton class="h-20 w-full" />
-        </div>
-
         <!-- No Session Data or no panel config -->
-        <div v-else-if="!sessionData || sortedSections.length === 0" class="text-center py-6 text-muted-foreground">
+        <div v-if="!props.sessionData || sortedSections.length === 0" class="text-center py-6 text-muted-foreground">
           <User class="h-8 w-8 mx-auto mb-2 opacity-50" />
           <p class="text-sm">No data configured</p>
           <p class="text-xs mt-1">Configure panel display in the chatbot flow settings.</p>
@@ -214,9 +185,9 @@ const contactTags = computed(() => {
         <!-- Session Data with panel config -->
         <template v-else>
           <!-- Flow Name Badge -->
-          <div v-if="sessionData.flow_name" class="flex items-center gap-2">
+          <div v-if="props.sessionData?.flow_name" class="flex items-center gap-2">
             <Badge variant="outline" class="text-xs">
-              {{ sessionData.flow_name }}
+              {{ props.sessionData?.flow_name }}
             </Badge>
           </div>
 

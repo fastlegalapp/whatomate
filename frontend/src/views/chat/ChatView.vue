@@ -99,6 +99,7 @@ const isAssignDialogOpen = ref(false)
 const isTransferring = ref(false)
 const isResuming = ref(false)
 const isInfoPanelOpen = ref(false)
+const contactSessionData = ref<any>(null)
 
 // File upload state
 const fileInputRef = ref<HTMLInputElement | null>(null)
@@ -438,6 +439,16 @@ async function selectContact(id: string) {
       setupScrollListener()
     }, 50)
 
+    // Fetch session data and auto-open panel if configured
+    try {
+      const response = await contactsService.getSessionData(id)
+      contactSessionData.value = response.data.data || response.data
+      if (contactSessionData.value?.panel_config?.sections?.length > 0) {
+        isInfoPanelOpen.value = true
+      }
+    } catch {
+      contactSessionData.value = null
+    }
   }
 }
 
@@ -1743,6 +1754,7 @@ async function sendMediaMessage() {
     <ContactInfoPanel
       v-if="contactsStore.currentContact && isInfoPanelOpen"
       :contact="contactsStore.currentContact"
+      :session-data="contactSessionData"
       @close="isInfoPanelOpen = false"
     />
 
