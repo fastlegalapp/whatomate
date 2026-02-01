@@ -511,10 +511,9 @@ func (a *App) GetKeywordRule(r *fastglue.Request) error {
 		return r.SendErrorEnvelope(fasthttp.StatusUnauthorized, "Unauthorized", nil, "")
 	}
 
-	idStr := r.RequestCtx.UserValue("id").(string)
-	id, err := uuid.Parse(idStr)
+	id, err := parsePathUUID(r, "id", "rule")
 	if err != nil {
-		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, "Invalid rule ID", nil, "")
+		return nil
 	}
 
 	rule, err := findByIDAndOrg[models.KeywordRule](a.DB, r, id, orgID, "Keyword rule")
@@ -545,10 +544,9 @@ func (a *App) UpdateKeywordRule(r *fastglue.Request) error {
 		return r.SendErrorEnvelope(fasthttp.StatusUnauthorized, "Unauthorized", nil, "")
 	}
 
-	idStr := r.RequestCtx.UserValue("id").(string)
-	id, err := uuid.Parse(idStr)
+	id, err := parsePathUUID(r, "id", "rule")
 	if err != nil {
-		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, "Invalid rule ID", nil, "")
+		return nil
 	}
 
 	rule, err := findByIDAndOrg[models.KeywordRule](a.DB, r, id, orgID, "Keyword rule")
@@ -612,10 +610,9 @@ func (a *App) DeleteKeywordRule(r *fastglue.Request) error {
 		return r.SendErrorEnvelope(fasthttp.StatusUnauthorized, "Unauthorized", nil, "")
 	}
 
-	idStr := r.RequestCtx.UserValue("id").(string)
-	id, err := uuid.Parse(idStr)
+	id, err := parsePathUUID(r, "id", "rule")
 	if err != nil {
-		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, "Invalid rule ID", nil, "")
+		return nil
 	}
 
 	result := a.DB.Where("id = ? AND organization_id = ?", id, orgID).Delete(&models.KeywordRule{})
@@ -636,14 +633,13 @@ func (a *App) DeleteKeywordRule(r *fastglue.Request) error {
 
 // ListChatbotFlows lists all chatbot flows
 func (a *App) ListChatbotFlows(r *fastglue.Request) error {
-	userID, _ := r.RequestCtx.UserValue("user_id").(uuid.UUID)
-	if !a.HasPermission(userID, models.ResourceFlowsChatbot, models.ActionRead) {
-		return r.SendErrorEnvelope(fasthttp.StatusForbidden, "Permission denied", nil, "")
-	}
-
-	orgID, err := a.getOrgID(r)
+	orgID, userID, err := a.getOrgAndUserID(r)
 	if err != nil {
 		return r.SendErrorEnvelope(fasthttp.StatusUnauthorized, "Unauthorized", nil, "")
+	}
+
+	if !a.HasPermission(userID, models.ResourceFlowsChatbot, models.ActionRead) {
+		return r.SendErrorEnvelope(fasthttp.StatusForbidden, "Permission denied", nil, "")
 	}
 
 	var flows []models.ChatbotFlow
@@ -695,14 +691,13 @@ type FlowStepRequest struct {
 
 // CreateChatbotFlow creates a new chatbot flow
 func (a *App) CreateChatbotFlow(r *fastglue.Request) error {
-	userID, _ := r.RequestCtx.UserValue("user_id").(uuid.UUID)
-	if !a.HasPermission(userID, models.ResourceFlowsChatbot, models.ActionWrite) {
-		return r.SendErrorEnvelope(fasthttp.StatusForbidden, "Permission denied", nil, "")
-	}
-
-	orgID, err := a.getOrgID(r)
+	orgID, userID, err := a.getOrgAndUserID(r)
 	if err != nil {
 		return r.SendErrorEnvelope(fasthttp.StatusUnauthorized, "Unauthorized", nil, "")
+	}
+
+	if !a.HasPermission(userID, models.ResourceFlowsChatbot, models.ActionWrite) {
+		return r.SendErrorEnvelope(fasthttp.StatusForbidden, "Permission denied", nil, "")
 	}
 
 	var req struct {
@@ -803,20 +798,18 @@ func (a *App) CreateChatbotFlow(r *fastglue.Request) error {
 
 // GetChatbotFlow gets a single chatbot flow with steps
 func (a *App) GetChatbotFlow(r *fastglue.Request) error {
-	userID, _ := r.RequestCtx.UserValue("user_id").(uuid.UUID)
-	if !a.HasPermission(userID, models.ResourceFlowsChatbot, models.ActionRead) {
-		return r.SendErrorEnvelope(fasthttp.StatusForbidden, "Permission denied", nil, "")
-	}
-
-	orgID, err := a.getOrgID(r)
+	orgID, userID, err := a.getOrgAndUserID(r)
 	if err != nil {
 		return r.SendErrorEnvelope(fasthttp.StatusUnauthorized, "Unauthorized", nil, "")
 	}
 
-	idStr := r.RequestCtx.UserValue("id").(string)
-	id, err := uuid.Parse(idStr)
+	if !a.HasPermission(userID, models.ResourceFlowsChatbot, models.ActionRead) {
+		return r.SendErrorEnvelope(fasthttp.StatusForbidden, "Permission denied", nil, "")
+	}
+
+	id, err := parsePathUUID(r, "id", "flow")
 	if err != nil {
-		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, "Invalid flow ID", nil, "")
+		return nil
 	}
 
 	var flow models.ChatbotFlow
@@ -833,20 +826,18 @@ func (a *App) GetChatbotFlow(r *fastglue.Request) error {
 
 // UpdateChatbotFlow updates a chatbot flow
 func (a *App) UpdateChatbotFlow(r *fastglue.Request) error {
-	userID, _ := r.RequestCtx.UserValue("user_id").(uuid.UUID)
-	if !a.HasPermission(userID, models.ResourceFlowsChatbot, models.ActionWrite) {
-		return r.SendErrorEnvelope(fasthttp.StatusForbidden, "Permission denied", nil, "")
-	}
-
-	orgID, err := a.getOrgID(r)
+	orgID, userID, err := a.getOrgAndUserID(r)
 	if err != nil {
 		return r.SendErrorEnvelope(fasthttp.StatusUnauthorized, "Unauthorized", nil, "")
 	}
 
-	idStr := r.RequestCtx.UserValue("id").(string)
-	id, err := uuid.Parse(idStr)
+	if !a.HasPermission(userID, models.ResourceFlowsChatbot, models.ActionWrite) {
+		return r.SendErrorEnvelope(fasthttp.StatusForbidden, "Permission denied", nil, "")
+	}
+
+	id, err := parsePathUUID(r, "id", "flow")
 	if err != nil {
-		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, "Invalid flow ID", nil, "")
+		return nil
 	}
 
 	flow, err := findByIDAndOrg[models.ChatbotFlow](a.DB, r, id, orgID, "Flow")
@@ -968,20 +959,18 @@ func (a *App) UpdateChatbotFlow(r *fastglue.Request) error {
 
 // DeleteChatbotFlow deletes a chatbot flow
 func (a *App) DeleteChatbotFlow(r *fastglue.Request) error {
-	userID, _ := r.RequestCtx.UserValue("user_id").(uuid.UUID)
-	if !a.HasPermission(userID, models.ResourceFlowsChatbot, models.ActionDelete) {
-		return r.SendErrorEnvelope(fasthttp.StatusForbidden, "Permission denied", nil, "")
-	}
-
-	orgID, err := a.getOrgID(r)
+	orgID, userID, err := a.getOrgAndUserID(r)
 	if err != nil {
 		return r.SendErrorEnvelope(fasthttp.StatusUnauthorized, "Unauthorized", nil, "")
 	}
 
-	idStr := r.RequestCtx.UserValue("id").(string)
-	id, err := uuid.Parse(idStr)
+	if !a.HasPermission(userID, models.ResourceFlowsChatbot, models.ActionDelete) {
+		return r.SendErrorEnvelope(fasthttp.StatusForbidden, "Permission denied", nil, "")
+	}
+
+	id, err := parsePathUUID(r, "id", "flow")
 	if err != nil {
-		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, "Invalid flow ID", nil, "")
+		return nil
 	}
 
 	// Delete flow and steps in transaction
@@ -1105,10 +1094,9 @@ func (a *App) GetAIContext(r *fastglue.Request) error {
 		return r.SendErrorEnvelope(fasthttp.StatusUnauthorized, "Unauthorized", nil, "")
 	}
 
-	idStr := r.RequestCtx.UserValue("id").(string)
-	id, err := uuid.Parse(idStr)
+	id, err := parsePathUUID(r, "id", "context")
 	if err != nil {
-		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, "Invalid context ID", nil, "")
+		return nil
 	}
 
 	aiCtx, err := findByIDAndOrg[models.AIContext](a.DB, r, id, orgID, "AI context")
@@ -1126,10 +1114,9 @@ func (a *App) UpdateAIContext(r *fastglue.Request) error {
 		return r.SendErrorEnvelope(fasthttp.StatusUnauthorized, "Unauthorized", nil, "")
 	}
 
-	idStr := r.RequestCtx.UserValue("id").(string)
-	id, err := uuid.Parse(idStr)
+	id, err := parsePathUUID(r, "id", "context")
 	if err != nil {
-		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, "Invalid context ID", nil, "")
+		return nil
 	}
 
 	aiCtx, err := findByIDAndOrg[models.AIContext](a.DB, r, id, orgID, "AI context")
@@ -1188,10 +1175,9 @@ func (a *App) DeleteAIContext(r *fastglue.Request) error {
 		return r.SendErrorEnvelope(fasthttp.StatusUnauthorized, "Unauthorized", nil, "")
 	}
 
-	idStr := r.RequestCtx.UserValue("id").(string)
-	id, err := uuid.Parse(idStr)
+	id, err := parsePathUUID(r, "id", "context")
 	if err != nil {
-		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, "Invalid context ID", nil, "")
+		return nil
 	}
 
 	result := a.DB.Where("id = ? AND organization_id = ?", id, orgID).Delete(&models.AIContext{})
@@ -1244,10 +1230,9 @@ func (a *App) GetChatbotSession(r *fastglue.Request) error {
 		return r.SendErrorEnvelope(fasthttp.StatusUnauthorized, "Unauthorized", nil, "")
 	}
 
-	idStr := r.RequestCtx.UserValue("id").(string)
-	id, err := uuid.Parse(idStr)
+	id, err := parsePathUUID(r, "id", "session")
 	if err != nil {
-		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, "Invalid session ID", nil, "")
+		return nil
 	}
 
 	var session models.ChatbotSession
